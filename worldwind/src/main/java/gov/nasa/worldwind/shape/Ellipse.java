@@ -106,8 +106,6 @@ public class Ellipse extends AbstractShape {
      * The number of intervals used for generating geometry. Clamped between MIN_INTERVALS and maximumIntervals. Will
      * always be even.
      */
-    protected int intervals;
-
     private GeometryInfo geometryInfo = new GeometryInfo();
 
     /**
@@ -445,7 +443,7 @@ public class Ellipse extends AbstractShape {
         }
 
         // Get the attributes of the element buffer
-        ElementBufferAttributes elementBufferAttributes = ELEMENT_BUFFER_ATTRIBUTES.get(this.intervals);
+        ElementBufferAttributes elementBufferAttributes = ELEMENT_BUFFER_ATTRIBUTES.get(this.geometryInfo.intervals);
         drawState.elementBuffer = rc.getBufferObject(elementBufferAttributes);
         if (drawState.elementBuffer == null) {
             elementBufferAttributes = assembleElementsToCache(rc.renderResourceCache, this.geometryInfo);
@@ -516,15 +514,16 @@ public class Ellipse extends AbstractShape {
     protected boolean mustAssembleGeometry(RenderContext rc) {
         int calculatedIntervals = this.computeIntervals(rc);
         int sanitizedIntervals = this.sanitizeIntervals(calculatedIntervals);
-        if (this.vertexArray == null || sanitizedIntervals != this.intervals) {
-            this.intervals = sanitizedIntervals;
+        if (this.vertexArray == null || sanitizedIntervals != this.geometryInfo.intervals) {
+            this.geometryInfo.intervals = sanitizedIntervals;
+            this.computeSpinePoints();
             return true;
         }
 
         return false;
     }
 
-    protected GeometryInfo assembleGeometry(RenderContext rc) {
+    protected void assembleGeometry(RenderContext rc) {
         // Determine whether the shape geometry must be assembled as Cartesian geometry or as goegraphic geometry.
         this.isSurfaceShape = (this.altitudeMode == WorldWind.CLAMP_TO_GROUND) && this.followTerrain;
 
@@ -537,18 +536,17 @@ public class Ellipse extends AbstractShape {
         }
 
         // Determine the number of spine points and construct radius value holding array
-        int spinePoints = computeSpinePoints(this.intervals); // intervals must be even
         int spineIdx = 0;
-        double[] spineRadius = new double[spinePoints];
+        double[] spineRadius = new double[this.geometryInfo.spineCount];
 
         // Clear the shape's vertex array. The array will accumulate values as the shapes's geometry is assembled.
         // Determine the offset from the top and extruded vertices
         this.vertexIndex = 0;
-        int offset = (this.intervals + spinePoints) * VERTEX_STRIDE;
+        int offset = (this.geometryInfo.intervals + this.geometryInfo.spineCount) * VERTEX_STRIDE;
         if (this.extrude && !this.isSurfaceShape) {
-            this.vertexArray = new float[(this.intervals * 2 + spinePoints) * VERTEX_STRIDE];
+            this.vertexArray = new float[(this.geometryInfo.intervals * 2 + this.geometryInfo.spineCount) * VERTEX_STRIDE];
         } else {
-            this.vertexArray = new float[(this.intervals + spinePoints) * VERTEX_STRIDE];
+            this.vertexArray = new float[(this.geometryInfo.intervals + this.geometryInfo.spineCount) * VERTEX_STRIDE];
         }
 
         // Check if minor radius is less than major in which case we need to flip the definitions and change the phase
@@ -557,7 +555,7 @@ public class Ellipse extends AbstractShape {
 
         // Vertex generation begins on the positive major axis and works ccs around the ellipse. The spine points are
         // then appended from positive major axis to negative major axis.
-        double deltaRadians = 2 * Math.PI / this.intervals;
+        double deltaRadians = 2 * Math.PI / this.geometryInfo.intervals;
         double majorArcRadians, minorArcRadians;
         if (isStandardAxisOrientation) {
             majorArcRadians = this.majorRadius / rc.globe.getRadiusAt(this.center.latitude, this.center.longitude);
@@ -567,7 +565,7 @@ public class Ellipse extends AbstractShape {
             minorArcRadians = this.majorRadius / rc.globe.getRadiusAt(this.center.latitude, this.center.longitude);
         }
 
-        for (int i = 0; i < this.intervals; i++) {
+        for (int i = 0; i < this.geometryInfo.intervals; i++) {
             double radians = deltaRadians * i;
             double x = Math.cos(radians) * majorArcRadians;
             double y = Math.sin(radians) * minorArcRadians;
@@ -580,13 +578,13 @@ public class Ellipse extends AbstractShape {
             this.addVertex(rc, loc.latitude, loc.longitude, this.center.altitude, offset, true);
             // Add the major arc radius for the spine points. Spine points are vertically coincident with exterior
             // points. The first and middle most point do not have corresponding spine points.
-            if (i > 0 && i < this.intervals / 2) {
+            if (i > 0 && i < this.geometryInfo.intervals / 2) {
                 spineRadius[spineIdx++] = x;
             }
         }
 
         // Add the interior spine point vertices
-        for (int i = 0; i < spinePoints; i++) {
+        for (int i = 0; i < this.geometryInfo.spineCount; i++) {
             this.center.greatCircleLocation(0 + headingAdjustment + this.heading, spineRadius[i], scratchPosition);
             this.addVertex(rc, scratchPosition.latitude, scratchPosition.longitude, this.center.altitude, offset, false);
         }
@@ -602,11 +600,6 @@ public class Ellipse extends AbstractShape {
             this.boundingBox.translate(this.vertexOrigin.x, this.vertexOrigin.y, this.vertexOrigin.z);
             this.boundingSector.setEmpty();
         }
-
-        this.geometryInfo.intervals = this.intervals;
-        this.geometryInfo.spineCount = spinePoints;
-
-        return geometryInfo;
     }
 
     protected static ElementBufferAttributes assembleElementsToCache(RenderResourceCache cache, GeometryInfo geometryInfo) {
@@ -747,9 +740,10 @@ public class Ellipse extends AbstractShape {
         return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
     }
 
-    protected static int computeSpinePoints(int intervals) {
+    protected int computeSpinePoints() {
         // should be even
-        return intervals / 2 - 1;
+        this.geometryInfo.spineCount = this.geometryInfo.intervals / 2 - 1;
+        return this.geometryInfo.spineCount;
     }
 
     @Override
