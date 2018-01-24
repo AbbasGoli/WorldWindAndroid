@@ -108,6 +108,8 @@ public class Ellipse extends AbstractShape {
      */
     protected int intervals;
 
+    private GeometryInfo geometryInfo = new GeometryInfo();
+
     /**
      * Simple interval count based cache of the keys for element buffers. Element buffers are dependent only on the
      * number of intervals so the keys are cached here. The element buffer object itself is in the RenderResourceCache
@@ -446,7 +448,7 @@ public class Ellipse extends AbstractShape {
         ElementBufferAttributes elementBufferAttributes = ELEMENT_BUFFER_ATTRIBUTES.get(this.intervals);
         drawState.elementBuffer = rc.getBufferObject(elementBufferAttributes);
         if (drawState.elementBuffer == null) {
-            elementBufferAttributes = assembleElementsToCache(rc.renderResourceCache, this.intervals);
+            elementBufferAttributes = assembleElementsToCache(rc.renderResourceCache, this.geometryInfo);
             drawState.elementBuffer = rc.getBufferObject(elementBufferAttributes);
         }
 
@@ -522,7 +524,7 @@ public class Ellipse extends AbstractShape {
         return false;
     }
 
-    protected void assembleGeometry(RenderContext rc) {
+    protected GeometryInfo assembleGeometry(RenderContext rc) {
         // Determine whether the shape geometry must be assembled as Cartesian geometry or as goegraphic geometry.
         this.isSurfaceShape = (this.altitudeMode == WorldWind.CLAMP_TO_GROUND) && this.followTerrain;
 
@@ -600,28 +602,32 @@ public class Ellipse extends AbstractShape {
             this.boundingBox.translate(this.vertexOrigin.x, this.vertexOrigin.y, this.vertexOrigin.z);
             this.boundingSector.setEmpty();
         }
+
+        this.geometryInfo.intervals = this.intervals;
+        this.geometryInfo.spineCount = spinePoints;
+
+        return geometryInfo;
     }
 
-    protected static ElementBufferAttributes assembleElementsToCache(RenderResourceCache cache, int intervals) {
+    protected static ElementBufferAttributes assembleElementsToCache(RenderResourceCache cache, GeometryInfo geometryInfo) {
         // Create temporary storage for elements
         ShortArray elements = new ShortArray();
         // Generate an attribute bundle for his element buffer
         ElementBufferAttributes elementBufferAttributes = new ElementBufferAttributes();
 
         // Generate the top element buffer with spine
-        int interiorIdx = intervals;
-        int spinePoints = computeSpinePoints(intervals);
-        int offset = intervals + spinePoints;
+        int interiorIdx = geometryInfo.intervals;
+        int offset = geometryInfo.intervals + geometryInfo.spineCount;
 
         // Add the anchor leg
         elements.add((short) 0);
         elements.add((short) 1);
         // Tessellate the interior
-        for (int i = 2; i < intervals; i++) {
+        for (int i = 2; i < geometryInfo.intervals; i++) {
             // Add the corresponding interior spine point if this isn't the vertex following the last vertex for the
             // negative major axis
-            if (i != (intervals / 2 + 1)) {
-                if (i > intervals / 2) {
+            if (i != (geometryInfo.intervals / 2 + 1)) {
+                if (i > geometryInfo.intervals / 2) {
                     elements.add((short) --interiorIdx);
                 } else {
                     elements.add((short) interiorIdx++);
@@ -629,7 +635,7 @@ public class Ellipse extends AbstractShape {
             }
             // Add the degenerate triangle at the negative major axis in order to flip the triangle strip back towards
             // the positive axis
-            if (i == intervals / 2) {
+            if (i == geometryInfo.intervals / 2) {
                 elements.add((short) i);
             }
             // Add the exterior vertex
@@ -641,13 +647,13 @@ public class Ellipse extends AbstractShape {
         elementBufferAttributes.topElements.set(0, elements.size());
 
         // Generate the outline element buffer
-        for (int i = 0; i < intervals; i++) {
+        for (int i = 0; i < geometryInfo.intervals; i++) {
             elements.add((short) i);
         }
         elementBufferAttributes.outlineElements.set(elementBufferAttributes.topElements.upper, elements.size());
 
         // Generate the side element buffer
-        for (int i = 0; i < intervals; i++) {
+        for (int i = 0; i < geometryInfo.intervals; i++) {
             elements.add((short) i);
             elements.add((short) (i + offset));
         }
@@ -663,7 +669,7 @@ public class Ellipse extends AbstractShape {
 
         // Cache the buffer object and attributes in the cache and attribute map respectively
         cache.put(elementBufferAttributes, elementBuffer, size);
-        ELEMENT_BUFFER_ATTRIBUTES.put(intervals, elementBufferAttributes);
+        ELEMENT_BUFFER_ATTRIBUTES.put(geometryInfo.intervals, elementBufferAttributes);
 
         return elementBufferAttributes;
     }
@@ -782,5 +788,12 @@ public class Ellipse extends AbstractShape {
             result = 31 * result + verticalElements.hashCode();
             return result;
         }
+    }
+
+    protected static class GeometryInfo {
+
+        protected int intervals;
+
+        protected int spineCount;
     }
 }
